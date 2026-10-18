@@ -32,7 +32,7 @@
 
 .PARAMETER LogPath
     Full path to the PowerShell transcript log file. Defaults to
-    "$env:WINDIR\Temp\build-lab.log".
+    "$env:WINDIR\Temp\install-maldev01-tools.log".
 
 .PARAMETER ToolsDir
     Install root for the portable tools. Default: "C:\Tools".
@@ -54,10 +54,10 @@
 
 .EXAMPLE
     Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
-    .\build-lab.ps1
+    .\install-maldev01-tools.ps1
 
 .EXAMPLE
-    .\build-lab.ps1 -SkipWireshark -SkipWinDbg
+    .\install-maldev01-tools.ps1 -SkipWireshark -SkipWinDbg
 
 .NOTES
     REQUIREMENTS
@@ -70,7 +70,7 @@
 
 [CmdletBinding()]
 param(
-    [string]$LogPath  = "$env:WINDIR\Temp\build-lab.log",
+    [string]$LogPath  = "$env:WINDIR\Temp\install-maldev01-tools.log",
     [string]$ToolsDir = "C:\Tools",
 
     [switch]$SkipGit,
@@ -488,7 +488,7 @@ try {
         Write-Warning "Steps that FAILED: $($script:FailedSteps -join ', '). Rerun the script to retry them."
     }
     else {
-        Write-Output " build-lab.ps1 complete. Reboot before you start working."
+        Write-Output " install-maldev01-tools.ps1 complete. Reboot before you start working."
     }
     Write-Output " Full transcript: $LogPath"
     Write-Output "=============================================================================="
