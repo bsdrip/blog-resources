@@ -13,6 +13,7 @@
       * Visual Studio 2022 Community - "Desktop development with C++" workload
         (MSVC, Windows SDK)                                   [VS bootstrapper]
       * Visual Studio Code                                    [winget]
+      * PowerShell 7, set as the Windows Terminal default     [winget]
       * Git for Windows (optional)                            [winget]
       * Python 3                                              [winget]
       * x64dbg                                                [GitHub release -> C:\Tools\x64dbg]
@@ -332,6 +333,49 @@ function Install-VisualStudioCommunity {
     Write-Output "CONFIRMED: Windows SDK $($sdkVersion.Name)"
 }
 
+function Install-PowerShell7 {
+<#
+.SYNOPSIS  PowerShell 7, made the default profile in Windows Terminal.
+.DESCRIPTION
+    Windows PowerShell 5.1 is part of Windows and stays installed. "Default"
+    means the Windows Terminal default profile, which Windows 11 also uses for
+    Win+X > Terminal and "Open in Terminal". Windows Terminal settings.json is
+    JSON with comments, so the defaultProfile value is edited as text.
+#>
+    Install-WingetPackage -Id "Microsoft.PowerShell"
+    $pwshExe = Join-Path $env:ProgramFiles "PowerShell\7\pwsh.exe"
+    if (-not (Test-Path $pwshExe)) { throw "pwsh.exe not found at $pwshExe after install." }
+    & $pwshExe -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
+
+    if (-not (Get-AppxPackage -Name Microsoft.WindowsTerminal -ErrorAction SilentlyContinue)) {
+        Write-Output "Windows Terminal not installed (Windows 10?); start PowerShell 7 from the Start menu instead."
+        return
+    }
+
+    # Windows Terminal's fixed GUID for its auto-generated PowerShell 7 profile.
+    $pwshProfileGuid = "{574e775e-4f2a-5b96-ac1e-a2962a402336}"
+    $settingsDir  = Join-Path $env:LOCALAPPDATA "Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState"
+    $settingsFile = Join-Path $settingsDir "settings.json"
+
+    if (Test-Path $settingsFile) {
+        Copy-Item $settingsFile "$settingsFile.bak" -Force
+        $settings = Get-Content -Path $settingsFile -Raw
+        if ($settings -match '"defaultProfile"\s*:\s*"[^"]*"') {
+            $settings = $settings -replace '"defaultProfile"\s*:\s*"[^"]*"', "`"defaultProfile`": `"$pwshProfileGuid`""
+        }
+        else {
+            $settings = ([regex]'\{').Replace($settings, "{`r`n    `"defaultProfile`": `"$pwshProfileGuid`",", 1)
+        }
+    }
+    else {
+        # Terminal never started yet: a minimal file is enough, Terminal fills in the rest.
+        New-Item -ItemType Directory -Path $settingsDir -Force | Out-Null
+        $settings = "{`r`n    `"defaultProfile`": `"$pwshProfileGuid`"`r`n}`r`n"
+    }
+    [IO.File]::WriteAllText($settingsFile, $settings, (New-Object System.Text.UTF8Encoding($false)))
+    Write-Output "CONFIRMED: PowerShell 7 is the Windows Terminal default profile ($settingsFile)."
+}
+
 function Install-Python {
     # Override so Python lands machine-wide and on PATH for every user.
     Install-WingetPackage -Id $PythonWingetId -Override "/quiet InstallAllUsers=1 PrependPath=1 Include_pip=1 Include_launcher=1"
@@ -459,6 +503,7 @@ try {
 
     Invoke-LabStep -Name "Visual Studio 2022 Community (C++ + SDK)" { Install-VisualStudioCommunity }
     Invoke-LabStep -Name "Visual Studio Code"  { Install-WingetPackage -Id "Microsoft.VisualStudioCode" }
+    Invoke-LabStep -Name "PowerShell 7"        { Install-PowerShell7 }
     if (-not $SkipGit) {
         Invoke-LabStep -Name "Git for Windows" { Install-WingetPackage -Id "Git.Git" }
     }
