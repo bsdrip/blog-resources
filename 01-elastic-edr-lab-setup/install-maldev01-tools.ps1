@@ -13,7 +13,7 @@
       * Visual Studio 2022 Community - "Desktop development with C++" workload
         (MSVC, Windows SDK)                                   [VS bootstrapper]
       * Visual Studio Code                                    [winget]
-      * PowerShell 7, set as the Windows Terminal default     [winget]
+      * PowerShell 7, set as the Windows Terminal default     [GitHub release MSI]
       * Git for Windows (optional)                            [winget]
       * Python 3                                              [winget]
       * x64dbg                                                [GitHub release -> C:\Tools\x64dbg]
@@ -342,8 +342,25 @@ function Install-PowerShell7 {
     Win+X > Terminal and "Open in Terminal". Windows Terminal settings.json is
     JSON with comments, so the defaultProfile value is edited as text.
 #>
-    Install-WingetPackage -Id "Microsoft.PowerShell"
+    # The official MSI rather than winget: winget rejects the package as
+    # "not supported by the system" (0x8A150113) on some Windows 11 builds.
     $pwshExe = Join-Path $env:ProgramFiles "PowerShell\7\pwsh.exe"
+    if (Test-Path $pwshExe) {
+        Write-Output "CONFIRMED: PowerShell 7 already installed at $pwshExe"
+    }
+    else {
+        $url = Get-GitHubReleaseAssetUrl -Repo "PowerShell/PowerShell" -AssetPattern '-win-x64\.msi$'
+        $msi = Join-Path $env:TEMP "PowerShell-win-x64.msi"
+        Save-HttpFile -Uri $url -Destination $msi -MinBytes 50MB
+
+        # ADD_PATH puts pwsh on PATH; USE_MU/ENABLE_MU let Microsoft Update keep it current.
+        $msiArgs = @("/i", "`"$msi`"", "/qn", "/norestart", "ADD_PATH=1", "REGISTER_MANIFEST=1", "USE_MU=1", "ENABLE_MU=1")
+        Write-Output "Running: msiexec $($msiArgs -join ' ')"
+        $proc = Start-Process -FilePath "msiexec.exe" -ArgumentList $msiArgs -Wait -PassThru
+        # 3010 = success, reboot required.
+        if ($proc.ExitCode -notin @(0, 3010)) { throw "PowerShell 7 MSI exited with code $($proc.ExitCode)" }
+        Update-SessionPath
+    }
     if (-not (Test-Path $pwshExe)) { throw "pwsh.exe not found at $pwshExe after install." }
     & $pwshExe -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
 
@@ -475,11 +492,25 @@ function Install-Npcap {
         Write-Output "CONFIRMED: Npcap already installed."
         return
     }
-    $page = Invoke-WebRequest -Uri $NpcapDownloadPage -UseBasicParsing -Headers @{ "User-Agent" = "maldev-lab-installer" }
-    $match = [regex]::Match($page.Content, 'dist/npcap-[0-9.]+\.exe')
-    if (-not $match.Success) { throw "Npcap installer link not found on $NpcapDownloadPage; install it from there by hand." }
-    $installer = Join-Path $env:TEMP "npcap-installer.exe"
-    Save-HttpFile -Uri ($NpcapDownloadPage.TrimEnd('/') + "/" + $match.Value) -Destination $installer -MinBytes 500KB
+    $manualHint = "Install Npcap by hand from $NpcapDownloadPage (keep the default options) or rerun this script later."
+    try {
+        $page = Invoke-WebRequest -Uri $NpcapDownloadPage -UseBasicParsing -Headers @{ "User-Agent" = "maldev-lab-installer" }
+        $match = [regex]::Match($page.Content, 'dist/npcap-[0-9.]+\.exe')
+        if (-not $match.Success) { throw "installer link not found on the page" }
+        $installer = Join-Path $env:TEMP "npcap-installer.exe"
+        Save-HttpFile -Uri ($NpcapDownloadPage.TrimEnd('/') + "/" + $match.Value) -Destination $installer -MinBytes 500KB
+    }
+    catch {
+        # TLS is never bypassed for a driver installer: an expired or untrusted
+        # npcap.com certificate means "try again later", not "download anyway".
+        throw "Could not download Npcap from $NpcapDownloadPage ($($_.Exception.Message)). $manualHint"
+    }
+
+    $signature = Get-AuthenticodeSignature -FilePath $installer
+    if ($signature.Status -ne "Valid") {
+        throw "Npcap installer signature is $($signature.Status); not running it. $manualHint"
+    }
+    Write-Output "Npcap installer signed by: $($signature.SignerCertificate.Subject)"
 
     Write-Output "ACTION REQUIRED: the Npcap installer is opening - click through it with the default options."
     $proc = Start-Process -FilePath $installer -Wait -PassThru
